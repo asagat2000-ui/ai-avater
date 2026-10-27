@@ -1,6 +1,6 @@
 /**
  * speech.js - 音声認識 (STT) & 音声合成 (TTS) モジュール
- * モバイルブラウザ特有の制限やバグに対応した安定設計
+ * iOS Safari / WebKit 特有の音声再生制限（Audio Unlock・マナーモード・GCバグ）に対応
  */
 
 export class SpeechManager {
@@ -18,8 +18,8 @@ export class SpeechManager {
     // 音声合成 (SpeechSynthesis)
     this.synthesis = window.speechSynthesis;
     this.voices = [];
-    this.currentUtterance = null;
     this.isSpeaking = false;
+    this.audioUnlocked = false;
 
     // コールバック
     this.onResultCallback = null;
@@ -28,6 +28,49 @@ export class SpeechManager {
 
     this.initTTS();
     this.initSTT();
+  }
+
+  /* ========================================================
+     iOS Audio Unlock (ユーザー操作時にオーディオ制限を解除)
+     ======================================================== */
+  unlockAudio() {
+    if (this.audioUnlocked) return;
+
+    try {
+      // 1. Web Audio APIのアンロック（無音バッファ再生）
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (AudioContext) {
+        const ctx = new AudioContext();
+        const buffer = ctx.createBuffer(1, 1, 22050);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.start(0);
+        if (ctx.state === 'suspended') {
+          ctx.resume();
+        }
+      }
+
+      // 2. SpeechSynthesis のアンロック（極小のダミー発話）
+      if (this.synthesis) {
+        if (this.synthesis.paused) {
+          this.synthesis.resume();
+        }
+        const dummy = new SpeechSynthesisUtterance(' ');
+        dummy.volume = 0.01;
+        dummy.rate = 2.0;
+        dummy.onend = () => {
+          this.audioUnlocked = true;
+        };
+        dummy.onerror = () => {
+          this.audioUnlocked = true;
+        };
+        this.synthesis.speak(dummy);
+      }
+      this.audioUnlocked = true;
+    } catch (e) {
+      console.warn('Audio unlock warning:', e);
+    }
   }
 
   /* ========================================================
@@ -50,7 +93,12 @@ export class SpeechManager {
   }
 
   getJapaneseVoices() {
-    return this.voices.filter(v => v.lang.startsWith('ja') || v.lang.includes('JP'));
+    if (!this.voices || this.voices.length === 0) {
+      if (this.synthesis) {
+        this.voices = this.synthesis.getVoices();
+      }
+    }
+    return (this.voices || []).filter(v => v.lang.startsWith('ja') || v.lang.includes('JP'));
   }
 
   /**
@@ -65,10 +113,18 @@ export class SpeechManager {
         return;
       }
 
-      // 既存の発話をキャンセル
-      this.stopSpeaking();
+      // アンロックがまだなら実行
+      this.unlockAudio();
 
-      // モバイルChromeのTTSバグ対策：絵文字や記号をある程度クリーン化
+      // iOS Safariのスタック対策：一旦cancelしてresume
+      if (this.synthesis.speaking || this.synthesis.pending) {
+        this.synthesis.cancel();
+      }
+      if (this.synthesis.paused) {
+        this.synthesis.resume();
+      }
+
+      // 記号や絵文字のクリーン化
       const cleanText = text
         .replace(/[✨💧❓❗★☆♪]/g, '')
         .trim();
@@ -80,22 +136,43 @@ export class SpeechManager {
 
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = 'ja-JP';
+      utterance.volume = 1.0;
 
       // 設定反映
       utterance.pitch = parseFloat(this.settingsManager.get('voicePitch')) || 1.1;
       utterance.rate = parseFloat(this.settingsManager.get('voiceRate')) || 1.05;
 
-      // 選択ボイス
+      // ボイス選択
       const voiceName = this.settingsManager.get('voiceName');
       const jaVoices = this.getJapaneseVoices();
       if (voiceName) {
         const found = jaVoices.find(v => v.name === voiceName);
         if (found) utterance.voice = found;
       } else if (jaVoices.length > 0) {
-        // 女性らしい声を優先選択（古いAndroidでもGoogle日本語音声などを選択）
-        const preferred = jaVoices.find(v => v.name.includes('Google') || v.name.includes('Kyoko') || v.name.includes('Otoya') || v.name.includes('Natural')) || jaVoices[0];
+        // iOS: Kyoko, Otoya, Siri / Android: Google
+        const preferred = jaVoices.find(v => 
+          v.name.includes('Kyoko') || 
+          v.name.includes('Otoya') || 
+          v.name.includes('Google') || 
+          v.name.includes('Siri') ||
+          v.name.includes('Natural')
+        ) || jaVoices[0];
         utterance.voice = preferred;
       }
+
+      let hasEnded = false;
+      const finish = () => {
+        if (hasEnded) return;
+        hasEnded = true;
+        this.isSpeaking = false;
+        this.avatar.stopLipSync();
+        this.notifyStatus('idle');
+        // GC対策配列から除外
+        if (window._activeUtterances) {
+          window._activeUtterances = window._activeUtterances.filter(u => u !== utterance);
+        }
+        resolve();
+      };
 
       utterance.onstart = () => {
         this.isSpeaking = true;
@@ -103,29 +180,43 @@ export class SpeechManager {
         this.notifyStatus('speaking');
       };
 
-      utterance.onend = () => {
-        this.isSpeaking = false;
-        this.avatar.stopLipSync();
-        this.notifyStatus('idle');
-        resolve();
-      };
-
+      utterance.onend = finish;
       utterance.onerror = (e) => {
         console.warn('SpeechSynthesis error:', e);
-        this.isSpeaking = false;
-        this.avatar.stopLipSync();
-        this.notifyStatus('idle');
-        resolve();
+        finish();
       };
 
-      this.currentUtterance = utterance;
-      this.synthesis.speak(utterance);
+      // iOS Safari特有のGCバグ対策（グローバル配列に保持してGC回収を防止）
+      window._activeUtterances = window._activeUtterances || [];
+      window._activeUtterances.push(utterance);
+
+      // 安全のための最大タイムアウト（万が一終了イベントが来ない場合）
+      const approxDuration = Math.max(3000, cleanText.length * 350);
+      setTimeout(() => {
+        if (!hasEnded && this.isSpeaking) {
+          finish();
+        }
+      }, approxDuration);
+
+      // iOS Safariの短い遅延後の発火（即座に呼ぶと無音になる不具合の回避）
+      setTimeout(() => {
+        try {
+          this.synthesis.speak(utterance);
+        } catch (e) {
+          console.warn('speak failed:', e);
+          finish();
+        }
+      }, 50);
     });
   }
 
   stopSpeaking() {
-    if (this.synthesis && this.synthesis.speaking) {
-      this.synthesis.cancel();
+    if (this.synthesis) {
+      try {
+        this.synthesis.cancel();
+      } catch (e) {
+        console.warn(e);
+      }
     }
     this.isSpeaking = false;
     this.avatar.stopLipSync();
@@ -138,7 +229,7 @@ export class SpeechManager {
     if (!this.recognition) return;
 
     this.recognition.lang = 'ja-JP';
-    this.recognition.continuous = false; // モバイルではfalseでワンフレーズ確定させる方が高安定
+    this.recognition.continuous = false;
     this.recognition.interimResults = true;
     this.recognition.maxAlternatives = 1;
 
@@ -174,6 +265,11 @@ export class SpeechManager {
       console.warn('SpeechRecognition error:', event.error);
       this.isListening = false;
       this.notifyStatus('idle');
+
+      // iOS等のマイク権限エラー通知
+      if (event.error === 'not-allowed') {
+        alert('マイクの使用が許可されていません。ブラウザ（Safari等）の設定でマイクへのアクセスを「許可」してください。');
+      }
     };
 
     this.recognition.onend = () => {
@@ -183,12 +279,14 @@ export class SpeechManager {
   }
 
   startListening() {
+    // ユーザー操作のタイミングでiOSオーディオをアンロック
+    this.unlockAudio();
+
     if (!this.recognition) {
-      alert('お使いのブラウザは音声認識 (Web Speech API) に対応していません。Chromeなどのブラウザをご利用ください。');
+      alert('お使いのブラウザは音声認識 (Web Speech API) に対応していません。SafariまたはChromeをご利用ください。');
       return false;
     }
 
-    // 発話中なら止める
     if (this.isSpeaking) {
       this.stopSpeaking();
     }

@@ -127,10 +127,16 @@
 
           <!-- 音声ボイス設定 -->
           <div class="form-group">
-            <label for="voiceSelect">読み上げ音声（端末内蔵）</label>
+            <div class="form-row">
+              <label for="voiceSelect">読み上げ音声（端末内蔵）</label>
+              <button type="button" class="btn-test-voice" id="btnTestVoice">🔊 声をテスト</button>
+            </div>
             <select id="voiceSelect">
               <option value="">(端末のデフォルト)</option>
             </select>
+            <span class="help-text-alert" id="iosAlertText">
+              ⚠️ <strong>iPhoneをご利用の方へ</strong>: 本体の左側面にあるマナーモード（消音スイッチ）がONになっていると、Safariの仕様で声が聞こえません。スイッチを解除して音量を上げてください。
+            </span>
           </div>
 
           <div class="form-group">

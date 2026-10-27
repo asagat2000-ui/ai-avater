@@ -80,6 +80,7 @@ class App {
     this.dom.checkAutoListen = document.getElementById('checkAutoListen');
     this.dom.checkAutoSpeak = document.getElementById('checkAutoSpeak');
     this.dom.selectIdleTimeout = document.getElementById('selectIdleTimeout');
+    this.dom.btnTestVoice = document.getElementById('btnTestVoice');
   }
 
   initComponents() {
@@ -111,14 +112,15 @@ class App {
       }
     });
 
-    // 初回タップ時にWake Lock有効化
+    // 初回タップ時にWake Lock有効化 ＆ iOS Audio Unlock
     const enableWakeLockOnce = () => {
       this.wakeLock.requestWakeLock();
+      this.speech.unlockAudio();
       document.removeEventListener('click', enableWakeLockOnce);
       document.removeEventListener('touchstart', enableWakeLockOnce);
     };
-    document.addEventListener('click', enableWakeLockOnce);
-    document.addEventListener('touchstart', enableWakeLockOnce);
+    document.addEventListener('click', enableWakeLockOnce, { passive: true });
+    document.addEventListener('touchstart', enableWakeLockOnce, { passive: true });
 
     this.resetAutoSpeakTimer();
   }
@@ -208,20 +210,32 @@ class App {
       this.dom.rateVal.textContent = e.target.value;
     });
 
+    // 発声テストボタン
+    if (this.dom.btnTestVoice) {
+      this.dom.btnTestVoice.addEventListener('click', () => {
+        this.userInteracted();
+        this.speech.unlockAudio();
+        const charName = this.dom.inputCharName.value.trim() || 'わたし';
+        this.speech.speak(`こんにちは！${charName}です。私の声が聞こえていますか？`);
+      });
+    }
+
     // 設定保存
     this.dom.btnSaveSettings.addEventListener('click', () => {
+      this.userInteracted();
       this.saveSettingsFromForm();
       this.dom.settingsModal.classList.remove('active');
       this.updateAvatarNameDisplay();
       alert('設定を保存しました！');
     });
 
-    // 画面タップで無操作タイマーリセット
+    // 画面タップで無操作タイマーリセット ＆ 音声アンロック
     window.addEventListener('touchstart', () => this.userInteracted(), { passive: true });
     window.addEventListener('mousedown', () => this.userInteracted());
   }
 
   userInteracted() {
+    this.speech.unlockAudio();
     this.wakeLock.resetIdleTimer();
     this.resetAutoSpeakTimer();
   }
