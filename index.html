@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>AIアバターチャット</title>
+  
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/svg+xml" href="./assets/icons/icon-192.svg">
+  <link rel="apple-touch-icon" href="./assets/icons/icon-192.svg">
+
+  <link rel="stylesheet" href="./css/style.css">
+  <link rel="stylesheet" href="./css/avatar.css">
+</head>
+<body>
+  <div id="app">
+    <!-- ヘッダーバー -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="status-badge">
+          <span class="char-title" id="avatarNameLabel">ルナ</span>
+          <span class="status-indicator" id="statusIndicator">待機中</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <!-- 疑似画面オフボタン -->
+        <button class="icon-btn" id="btnSleep" title="画面オフ（待機）" aria-label="画面オフ">🌙</button>
+        <!-- 全画面ボタン -->
+        <button class="icon-btn" id="btnFullscreen" title="全画面表示" aria-label="全画面">⛶</button>
+        <!-- 設定ボタン -->
+        <button class="icon-btn" id="btnSettings" title="設定" aria-label="設定">⚙️</button>
+      </div>
+    </header>
+
+    <!-- メインビュー -->
+    <main class="main-view">
+      <!-- チャット吹き出しコンテナ -->
+      <div class="chat-bubbles-container">
+        <!-- アバターの発話 -->
+        <div class="chat-bubble chat-bubble-avatar" id="bubbleAvatar">
+          <p id="avatarText">こんにちは！今日もよろしくね！</p>
+        </div>
+        <!-- ユーザーの発話 -->
+        <div class="chat-bubble chat-bubble-user" id="bubbleUser">
+          <p id="userText"></p>
+        </div>
+      </div>
+
+      <!-- アバター表示領域 -->
+      <div class="avatar-container" id="avatarContainer">
+        <!-- SVGアバターがJavaScriptからここに描画されます -->
+      </div>
+    </main>
+
+    <!-- 下部操作コントロール -->
+    <footer class="control-bar">
+      <!-- テキスト入力トグル時の入力バー -->
+      <div class="text-input-area hidden" id="textInputArea">
+        <input type="text" id="inputMessage" placeholder="メッセージを入力..." autocomplete="off">
+        <button class="btn-send" id="btnSend">送信</button>
+      </div>
+
+      <div class="controls-row">
+        <!-- キーボード入力切り替え -->
+        <button class="btn-sub" id="btnTextToggle" title="テキスト入力切替" aria-label="テキスト入力">⌨️</button>
+        
+        <!-- メインマイクボタン -->
+        <button class="btn-mic-main" id="btnMic" title="話しかける" aria-label="音声入力">
+          <span id="micIcon">🎙️</span>
+        </button>
+
+        <!-- 将来の画像変更や追加アクション用スロット（または表情リフレッシュ） -->
+        <button class="btn-sub" id="btnEmotionRefresh" title="状態リセット" aria-label="リセット" onclick="location.reload()">🔄</button>
+      </div>
+    </footer>
+
+    <!-- 疑似画面オフ（黒画面待機オーバーレイ） -->
+    <div class="sleep-overlay" id="sleepOverlay">
+      <div class="sleep-indicator">
+        <div class="moon-icon">🌙</div>
+        <p>画面をタップすると起動します</p>
+      </div>
+    </div>
+
+    <!-- 設定モーダル -->
+    <div class="modal-overlay" id="settingsModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>キャラクター・アプリ設定</h2>
+          <button class="icon-btn" id="btnCloseSettings" aria-label="閉じる">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- プリセット選択 -->
+          <div class="form-group">
+            <label for="presetSelect">性格プリセット</label>
+            <select id="presetSelect">
+              <option value="tsundere">ルナ（ツンデレ後輩）</option>
+              <option value="oneesan">ヒカリ（癒やし系お姉さん）</option>
+              <option value="kansai">タイガ（陽気な関西の相棒）</option>
+              <option value="butler">セバスチャン（冷静沈着なAI執事）</option>
+            </select>
+          </div>
+
+          <!-- Gemini APIキー -->
+          <div class="form-group">
+            <label for="inputApiKey">Gemini APIキー</label>
+            <input type="password" id="inputApiKey" placeholder="AIzaSy...">
+            <span class="help-text">Google AI Studioで無料取得できるAPIキーです。ブラウザ内（ローカル）にのみ安全に保存されます。</span>
+          </div>
+
+          <!-- キャラクター名 -->
+          <div class="form-group">
+            <label for="inputCharName">キャラクター名</label>
+            <input type="text" id="inputCharName" placeholder="名前">
+          </div>
+
+          <!-- システムプロンプト（詳細性格設定） -->
+          <div class="form-group">
+            <label for="inputSystemPrompt">性格・口調設定（システムプロンプト）</label>
+            <textarea id="inputSystemPrompt" rows="4" placeholder="あなたの名前は... 口調は..."></textarea>
+            <span class="help-text">※返答の先頭に [emotion: happy|surprise|sad|thinking|neutral] を付与するルールを含めると表情が自動で連動します。</span>
+          </div>
+
+          <!-- 音声ボイス設定 -->
+          <div class="form-group">
+            <label for="voiceSelect">読み上げ音声（端末内蔵）</label>
+            <select id="voiceSelect">
+              <option value="">(端末のデフォルト)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <div class="form-row">
+              <label for="pitchSlider">声の高さ（ピッチ）</label>
+              <span class="range-val" id="pitchVal">1.1</span>
+            </div>
+            <input type="range" id="pitchSlider" min="0.5" max="1.8" step="0.05" value="1.1">
+          </div>
+
+          <div class="form-group">
+            <div class="form-row">
+              <label for="rateSlider">話す速度</label>
+              <span class="range-val" id="rateVal">1.05</span>
+            </div>
+            <input type="range" id="rateSlider" min="0.7" max="1.5" step="0.05" value="1.05">
+          </div>
+
+          <!-- 動作オプション -->
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="checkAutoListen" checked>
+              <span>キャラの発話終了後に自動でマイクをオンにする</span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="checkAutoSpeak" checked>
+              <span>無言が続いた場合にキャラから自発的に話しかける</span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label for="selectIdleTimeout">無操作時の自動スリープ（疑似画面オフ）</label>
+            <select id="selectIdleTimeout">
+              <option value="60">1分後</option>
+              <option value="180" selected>3分後</option>
+              <option value="300">5分後</option>
+              <option value="0">自動スリープしない</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-primary" id="btnSaveSettings">保存する</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

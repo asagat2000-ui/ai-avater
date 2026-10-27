@@ -1,0 +1,286 @@
+/**
+ * avatar.css - アバターのGPU加速アニメーション・表情差分制御
+ * 低スペック・古いスマホ向けにリフローを発生させず transform / opacity のみで動作
+ */
+
+.avatar-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 480px;
+  max-height: 70vh;
+  margin: 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  user-select: none;
+  pointer-events: none; /* タップ阻害防止 */
+}
+
+.avatar-svg {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+  will-change: transform;
+}
+
+/* ========================================================
+   呼吸・揺れ・基本モーション (GPU合成)
+   ======================================================== */
+.layer-body {
+  animation: breathing 4.2s ease-in-out infinite;
+  transform-origin: 200px 500px;
+  will-change: transform;
+}
+
+@keyframes breathing {
+  0%, 100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  50% {
+    transform: translateY(-5px) scale(1.015, 1.01);
+  }
+}
+
+.layer-head {
+  animation: headSway 6s ease-in-out infinite alternate;
+  transform-origin: 200px 300px;
+  will-change: transform;
+}
+
+@keyframes headSway {
+  0% {
+    transform: rotate(-0.8deg) translateY(0);
+  }
+  100% {
+    transform: rotate(0.8deg) translateY(-2px);
+  }
+}
+
+/* アホ毛のゆらゆら */
+.ahoge {
+  animation: ahogeWave 3s ease-in-out infinite;
+  transform-origin: 200px 120px;
+}
+
+@keyframes ahogeWave {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(6deg) skewX(2deg);
+  }
+}
+
+/* 話している時の少し弾むモーション */
+.avatar-stage.is-speaking .layer-head {
+  animation: speakingNod 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes speakingNod {
+  0% {
+    transform: translateY(0) rotate(-0.5deg);
+  }
+  100% {
+    transform: translateY(2px) rotate(0.5deg);
+  }
+}
+
+/* ========================================================
+   目の表示状態制御（瞬き・表情）
+   ======================================================== */
+.eye-state-open {
+  display: block;
+}
+
+.eye-state-blink,
+.eye-state-surprise {
+  display: none;
+}
+
+/* 瞬き中 */
+.avatar-stage.is-blinking .eye-state-open {
+  display: none;
+}
+.avatar-stage.is-blinking .eye-state-blink {
+  display: block;
+}
+
+/* 笑顔表情のときは常にニッコリ目 */
+.avatar-stage.emotion-happy .eye-state-open {
+  display: none;
+}
+.avatar-stage.emotion-happy .eye-state-blink {
+  display: block;
+}
+
+/* 驚き表情のときは見開き目 */
+.avatar-stage.emotion-surprise .eye-state-open {
+  display: none;
+}
+.avatar-stage.emotion-surprise .eye-state-surprise {
+  display: block;
+}
+
+/* ========================================================
+   口の切り替え（リップシンク）
+   ======================================================== */
+.mouth-part {
+  display: none;
+}
+
+/* デフォルトは閉じ口 */
+.avatar-stage:not(.lip-half):not(.lip-open):not(.lip-smile) .mouth-closed,
+.avatar-stage.lip-closed .mouth-closed {
+  display: block;
+}
+
+.avatar-stage.lip-half .mouth-half {
+  display: block;
+}
+
+.avatar-stage.lip-open .mouth-open {
+  display: block;
+}
+
+.avatar-stage.lip-smile .mouth-smile {
+  display: block;
+}
+
+/* ========================================================
+   表情差分（眉、チーク、傾き、漫符）
+   ======================================================== */
+/* 眉毛トランジション */
+.eyebrow {
+  transition: transform 0.25s ease;
+  transform-origin: 200px 190px;
+}
+
+/* 頬紅チーク */
+.layer-blush {
+  opacity: 0.3;
+  transition: opacity 0.3s ease;
+}
+
+/* --- 1. HAPPY (笑顔・嬉しい) --- */
+.avatar-stage.emotion-happy .layer-blush {
+  opacity: 1;
+}
+.avatar-stage.emotion-happy .eyebrow-left {
+  transform: translateY(-2px) rotate(-3deg);
+}
+.avatar-stage.emotion-happy .eyebrow-right {
+  transform: translateY(-2px) rotate(3deg);
+}
+.avatar-stage.emotion-happy .effect-sparkle {
+  display: block;
+  animation: popIn 0.4s ease-out forwards;
+}
+
+/* --- 2. SURPRISE (驚き) --- */
+.avatar-stage.emotion-surprise .eyebrow-left {
+  transform: translateY(-6px);
+}
+.avatar-stage.emotion-surprise .eyebrow-right {
+  transform: translateY(-6px);
+}
+.avatar-stage.emotion-surprise .effect-exclamation {
+  display: block;
+  animation: popIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+}
+
+/* --- 3. SAD / TROUBLED (困り・怒り・しょんぼり) --- */
+.avatar-stage.emotion-sad .eyebrow-left {
+  transform: translateY(3px) rotate(8deg);
+}
+.avatar-stage.emotion-sad .eyebrow-right {
+  transform: translateY(3px) rotate(-8deg);
+}
+.avatar-stage.emotion-sad .effect-sweat {
+  display: block;
+  animation: sweatDrop 1.2s ease-in-out infinite;
+}
+
+/* --- 4. THINKING (考え中・疑問) --- */
+.avatar-stage.emotion-thinking .layer-head {
+  transform: rotate(4deg) translateY(-2px);
+}
+.avatar-stage.emotion-thinking .eyebrow-left {
+  transform: translateY(-4px) rotate(-4deg);
+}
+.avatar-stage.emotion-thinking .eyebrow-right {
+  transform: translateY(1px) rotate(3deg);
+}
+.avatar-stage.emotion-thinking .effect-question {
+  display: block;
+  animation: popIn 0.4s ease-out forwards;
+}
+
+/* ========================================================
+   漫符エフェクト（キラキラ、汗、ハテナ、びっくり）
+   ======================================================== */
+.avatar-effects {
+  position: absolute;
+  top: 10%;
+  left: 0;
+  width: 100%;
+  height: 50%;
+  pointer-events: none;
+}
+
+.effect-sparkle,
+.effect-sweat,
+.effect-question,
+.effect-exclamation {
+  display: none;
+  position: absolute;
+  font-size: 2rem;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
+}
+
+.effect-sparkle {
+  top: 15%;
+  right: 18%;
+}
+
+.effect-sweat {
+  top: 18%;
+  left: 20%;
+}
+
+.effect-question {
+  top: 8%;
+  right: 22%;
+}
+
+.effect-exclamation {
+  top: 10%;
+  right: 22%;
+}
+
+@keyframes popIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.4) translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes sweatDrop {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
